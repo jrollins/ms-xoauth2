@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+
+# https://datatracker.ietf.org/doc/html/rfc6749
+
+# https://learn.microsoft.com/en-us/entra/msal/python/
+# https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app
+
+# https://requests-oauthlib.readthedocs.io/en/latest/oauth2_workflow.html
+
+import os
+import sys
+import time
+import json
+import logging
+import argparse
+import subprocess
+import configparser
+import urllib.parse
+import urllib.request
+from datetime import datetime
+from typing import Dict, Union
+
+from requests_oauthlib import OAuth2Session
+
+# from xdg_base_dirs import xdg_config_home, xdg_cache_home
+from appdirs import user_config_dir, user_cache_dir
+
+logger = logging.getLogger(__name__)
+
+##################################################
+
+MS_REDIRECT_URI = "https://login.microsoftonline.com/common/oauth2/nativeclient"
+MS_SCOPE = "openid offline_access https://outlook.office.com/SMTP.Send"
+MS_SCOPE = "offline_access https://outlook.office.com/SMTP.Send"
+MS_SCOPES = ['offline_access', 'https://outlook.office.com/SMTP.Send']
+#MS_SCOPE = "https://outlook.office.com/SMTP.Send"
+
+
+def ms_get_authorization_url(tenant: str, client_id: str) -> str:
+    url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+    query: Dict[str, str] = {}
+    query['client_id'] = client_id
+    query['scope'] = MS_SCOPE
+    query['redirect_uri'] = MS_REDIRECT_URI
+    query['response_mode'] = 'query'
+    query['response_type'] = 'code'
+    return f"{url}?{urllib.parse.urlencode(query)}"
+
+
+def ms_extract_code_from_auth_redirect(authorization_redirect: str) -> str:
+    if MS_REDIRECT_URI not in authorization_redirect:
+        raise ValueError(f"Resulting URL does not contain expected prefix: {MS_REDIRECT_URI}")
+    resulting_url = urllib.parse.urlparse(authorization_redirect)
+    code = urllib.parse.parse_qs(resulting_url.query)
+    if "code" not in code:
+        raise ValueError(f"Missing code in result: {resulting_url.query}")
+    return code["code"][0]
+
+
+def ms_get_token(tenant: str, client_id: str, code: str) -> Dict[str, Union[str, int]]:
+    url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+    token_request: Dict[str, str] = {}
+    token_request['client_id'] = client_id
+    # if len(client_secret) > 0:
+    #     token_request['client_secret'] = client_secret
+    token_request['scope'] = MS_SCOPE
+    token_request['redirect_uri'] = MS_REDIRECT_URI
+    token_request['code'] = code
+    token_request['grant_type'] = 'authorization_code'
+    request = urllib.request.Request(
+        url,
+        data=urllib.parse.urlencode(token_request).encode('ascii'),
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    resp = urllib.request.urlopen(request)
+    if resp.code != 200:
+        raise Exception(f"Request failed: {resp.code}")
+    try:
+        content = json.load(resp)
+        return content
+        # return {
+        #     'access_token': content["access_token"],
+        #     'refresh_token': content["refresh_token"],
+        #     'expiry': 0,
+        # }
+    except:
+        raise Exception(f"Tokens not found in response: {content}")
+
+
+def user_resolve_auth_url(authorization_url, headless=False):
+    if headless:
+        from tkinter import simpledialog
+        cmd = ['x-www-browser', authorization_url]
+        logger.debug(f"launching browser: {cmd}")
+        subprocess.run(cmd)
+        auth_redirect = simpledialog.askstring("ms-xoauth2 authorization URL", "Enter resolved URL from browser:")
+    else:
+        auth_redirect = input(f"""
+Visit link in a web browser, then paste the resulting URL:
+
+{authorization_url}
+
+Resulting URL: """)
+        print('', file=sys.stderr)
+    return auth_redirect
+
+
+# def ms_fetch_token(account, browser=True):
+#     tenant = account['tenant']
+#     client_id = account['client_id']
+#     authorization_url = ms_get_authorization_url(tenant, client_id)
+#     authorization_redirect = resolve_auth_url(authorization_url, headless=browser)
+#     code = ms_extract_code_from_auth_redirect(authorization_redirect)
+#     token = ms_get_token(tenant, client_id, code)
+#     return token
+
+##################################################
+
+DEFAULT_CONFIG_PATH = os.path.join(user_config_dir(), 'ms-xoauth2', 'config')
+CACHE_DIR = os.path.join(user_cache_dir(), 'ms-xoauth2')
+
+
+def load_token(token_path):
+    with open(token_path) as f:
+        token = json.load(f)
+    # update the expires_in field
+    # if 'acquired' in token:
+    #     expires = token['acquired'] + token['expires_in']
+    #     expires_in = expires - time.time()
+    #     token['expires_in'] = expires_in
+    return token
+
+
+def write_token(token, token_path, acquired=None):
+    os.makedirs(
+        os.path.dirname(token_path),
+        mode=0o700, exist_ok=True,
+    )
+    # if acquired:
+    #     token['acquired'] = acquired
+    with open(token_path, 'w') as f:
+        json.dump(token, f)
+    logger.debug(f"token written: {token_path}")
+    logger.debug(f"token: {token}")
+
+
+def log_token(token):
+    logfunc = logger.debug
+    scope = token['scope']
+    expires = datetime.fromtimestamp(token['expires_at'])
+    expired = time.time() >= token['expires_at']
+    logfunc(f"token scope: {scope}")
+    logfunc(f"token expiration: {expires}")
+    logfunc(f"token expired: {expired}")
+    return expired
+
+
+def get_token(account, browser=True):
+    name = account['name']
+    tenant = account['tenant']
+    client_id = account['client_id']
+
+    token_path = os.path.join(CACHE_DIR, 'tokens', f'{name}.json')
+    try:
+        token = load_token(token_path)
+        logger.debug(f"existing token retrieved from {token_path}")
+    except FileNotFoundError:
+        logger.debug("no existing token found")
+        token = None
+
+    if token:
+        expired = log_token(token)
+        if not expired:
+            return token
+
+    auth_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
+    token_url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
+
+    def token_updater(token):
+        write_token(token, token_path)
+
+    os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
+    client = OAuth2Session(
+        client_id,
+        scope=MS_SCOPES,
+        redirect_uri=MS_REDIRECT_URI,
+        token=token,
+        auto_refresh_url=token_url,
+        # auto_refresh_kwargs=extra,
+        token_updater=token_updater,
+    )
+
+    logger.debug(f"client authorizated (expectated): {client.authorized}")
+
+    logger.debug("refreshing token...")
+    token = client.refresh_token(token_url)#, **extra)
+    expired = log_token(token)
+    return token
+
+    authorization_url, state = client.authorization_url(auth_url)
+    logger.debug(f"authorization url: {authorization_url}")
+
+    authorization_redirect = user_resolve_auth_url(authorization_url, headless=browser)
+
+    token = client.fetch_token(
+        token_url,
+        authorization_response=authorization_redirect,
+        include_client_id=True,
+    )
+    logger.debug("new token retreived")
+    acquired = time.time()
+    expires = datetime.fromtimestamp(token['expires_at'])
+    logger.debug(f"new token expires: {expires}")
+
+    write_token(token, token_path, acquired=acquired)
+
+    return token
+
+##################################################
+
+
+def load_config(config_path):
+    config = configparser.ConfigParser()
+    config.read(config_path)
+    return config
+
+
+def get_account(config, account='default'):
+    if account == 'default':
+        account = config['default']['account']
+    logger.debug(f"account: {account}")
+    return dict(config[account], name=account)
+
+
+
+parser = argparse.ArgumentParser(
+    description="print MS xoauth2 access_token",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+)
+parser.add_argument(
+    '--config', '-c', default=DEFAULT_CONFIG_PATH,
+    help="path to config file",
+)
+parser.add_argument(
+    '--account', '-a', default='default',
+    help="account to use",
+)
+parser.add_argument(
+    '--browser',  action=argparse.BooleanOptionalAction, default=True,
+    help="(don't) open authorization link in browser",
+)
+
+
+
+def main():
+    logger.setLevel(os.getenv('LOG_LEVEL', 'DEBUG').upper())
+    handler = logging.StreamHandler()
+    handler.setFormatter(
+        logging.Formatter(
+            # '%(asctime)s %(message)s'
+            '%(message)s'
+        )
+    )
+    logger.addHandler(handler)
+
+    args = parser.parse_args()
+
+    config = load_config(args.config)
+
+    account = get_account(config, args.account)
+
+    token = get_token(account, browser=args.browser)
+
+    print(token['access_token'])
+
+
+if __name__ == '__main__':
+    main()
