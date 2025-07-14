@@ -202,11 +202,15 @@ def get_token(account, browser=True):
     except Exception as e:
         logger.exception(e)
 
+    logger.debug("retrieving new token...")
+
     authorization_url, state = client.authorization_url(auth_url)
     logger.debug(f"authorization url: {authorization_url}")
 
     authorization_redirect = user_resolve_auth_url(authorization_url, headless=browser)
+    logger.debug(f"redirect url: {authorization_redirect}")
 
+    logger.debug("token fetch...")
     token = client.fetch_token(
         token_url,
         authorization_response=authorization_redirect,
