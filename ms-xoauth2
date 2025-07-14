@@ -191,9 +191,16 @@ def get_token(account, browser=True):
     logger.debug(f"client authorizated (expectated): {client.authorized}")
 
     logger.debug("refreshing token...")
-    token = client.refresh_token(token_url)#, **extra)
-    expired = log_token(token)
-    return token
+    try:
+        # FIXME: this doesn't seem to be updating the cached token?
+        # FIXME: do we need to manually write the token?
+        token = client.refresh_token(token_url)#, **extra)
+        expired = log_token(token)
+        return token
+    # FIXME: should we not capture just this specific exception?
+    #except oauthlib.oauth2.rfc6749.errors.InvalidGrantError as e:
+    except Exception as e:
+        logger.exception(e)
 
     authorization_url, state = client.authorization_url(auth_url)
     logger.debug(f"authorization url: {authorization_url}")
