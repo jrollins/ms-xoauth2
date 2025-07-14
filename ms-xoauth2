@@ -30,17 +30,15 @@ logger = logging.getLogger(__name__)
 ##################################################
 
 MS_REDIRECT_URI = "https://login.microsoftonline.com/common/oauth2/nativeclient"
-MS_SCOPE = "openid offline_access https://outlook.office.com/SMTP.Send"
-MS_SCOPE = "offline_access https://outlook.office.com/SMTP.Send"
+#MS_SCOPES = ["openid", "offline_access", "https://outlook.office.com/SMTP.Send"]
 MS_SCOPES = ['offline_access', 'https://outlook.office.com/SMTP.Send']
-#MS_SCOPE = "https://outlook.office.com/SMTP.Send"
 
 
 def ms_get_authorization_url(tenant: str, client_id: str) -> str:
     url = f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
     query: Dict[str, str] = {}
     query['client_id'] = client_id
-    query['scope'] = MS_SCOPE
+    query['scope'] = ' '.join(MS_SCOPES)
     query['redirect_uri'] = MS_REDIRECT_URI
     query['response_mode'] = 'query'
     query['response_type'] = 'code'
@@ -63,7 +61,7 @@ def ms_get_token(tenant: str, client_id: str, code: str) -> Dict[str, Union[str,
     token_request['client_id'] = client_id
     # if len(client_secret) > 0:
     #     token_request['client_secret'] = client_secret
-    token_request['scope'] = MS_SCOPE
+    token_request['scope'] = ' '.join(MS_SCOPES)
     token_request['redirect_uri'] = MS_REDIRECT_URI
     token_request['code'] = code
     token_request['grant_type'] = 'authorization_code'
