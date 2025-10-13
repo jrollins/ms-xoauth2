@@ -188,7 +188,7 @@ def get_token(account, browser=True):
         token_updater=token_updater,
     )
 
-    logger.debug(f"client authorizated (expectated): {client.authorized}")
+    logger.debug(f"client authorizated (expected): {client.authorized}")
 
     logger.debug("refreshing token...")
     try:
