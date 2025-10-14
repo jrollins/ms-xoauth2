@@ -85,13 +85,26 @@ def ms_get_token(tenant: str, client_id: str, code: str) -> Dict[str, Union[str,
         raise Exception(f"Tokens not found in response: {content}")
 
 
+def simple_dialog(title, prompt):
+    cmd = [
+        "gxmessage", "-center",
+        "-title", title,
+        "-entrytext", "",
+        prompt,
+    ]
+    p = subprocess.run(cmd, capture_output=True)
+    return p.stdout.decode().strip()
+
+
 def user_resolve_auth_url(authorization_url, headless=False):
     if headless:
-        from tkinter import simpledialog
         cmd = ['x-www-browser', authorization_url]
         logger.debug(f"launching browser: {cmd}")
         subprocess.run(cmd)
-        auth_redirect = simpledialog.askstring("ms-xoauth2 authorization URL", "Enter resolved URL from browser:")
+
+        title = "ms-xoauth2 authorization URL"
+        prompt = "Enter resolved URL from browser:"
+        auth_redirect = simple_dialog(title, prompt)
     else:
         auth_redirect = input(f"""
 Visit link in a web browser, then paste the resulting URL:
