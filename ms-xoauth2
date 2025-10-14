@@ -98,9 +98,11 @@ def simple_dialog(title, prompt):
 
 def user_resolve_auth_url(authorization_url, headless=False):
     if headless:
-        cmd = ['x-www-browser', authorization_url]
+        #cmd = ['x-www-browser', authorization_url]
+        cmd = ['chromium', authorization_url]
         logger.debug(f"launching browser: {cmd}")
-        subprocess.run(cmd)
+        #subprocess.run(cmd)
+        os.spawnvp(os.P_NOWAIT, cmd[0], cmd)
 
         title = "ms-xoauth2 authorization URL"
         prompt = "Enter resolved URL from browser:"
