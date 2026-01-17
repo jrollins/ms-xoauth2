@@ -105,8 +105,9 @@ def get_localhost_redirect_uri(port=8400):
 
 MS_AUTH_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
 MS_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
-MS_REDIRECT_URI = "https://login.microsoftonline.com/common/oauth2/nativeclient"
 MS_SCOPES = ["https://outlook.office.com/SMTP.Send", "offline_access"]
+
+LOCALHOST_PORT = 8400
 
 DEFAULT_CONFIG_PATH = os.path.join(user_config_dir(), 'ms-xoauth2', 'config')
 CACHE_DIR = os.path.join(user_cache_dir(), 'ms-xoauth2')
@@ -138,27 +139,40 @@ def simple_dialog(title, prompt):
     return p.stdout.decode().strip()
 
 
-def user_resolve_auth_url(authorization_url, headless=False):
-    if headless:
-        #cmd = ['x-www-browser', authorization_url]
-        cmd = ['chromium', authorization_url]
-        logger.debug("launching browser...")
-        os.spawnvp(os.P_NOWAIT, cmd[0], cmd)
-
-        title = "ms-xoauth2 authorization URL"
-        prompt = "Enter resolved URL from browser:"
-        auth_redirect = simple_dialog(title, prompt)
-    else:
-        auth_redirect = input(f"""
+def user_resolve_auth_url_manual(authorization_url):
+    """Prompt user to manually visit URL and paste the redirect (legacy fallback)."""
+    auth_redirect = input(f"""
 Visit link in a web browser, then paste the resulting URL:
 
 {authorization_url}
 
 Resulting URL: """)
-        print('', file=sys.stderr)
+    print('', file=sys.stderr)
     if not auth_redirect:
         raise ValueError("no redirect URI provided.")
     return auth_redirect
+
+
+def user_resolve_auth_url_localhost(authorization_url, port=LOCALHOST_PORT):
+    """Open browser and capture OAuth callback via local HTTP server."""
+    server = start_local_server(port)
+
+    logger.debug(f"started local server on port {port}")
+    logger.debug(f"opening browser to: {authorization_url}")
+
+    # Open browser to authorization URL
+    webbrowser.open(authorization_url)
+
+    print(f"Opened browser for authorization. Waiting for callback...", file=sys.stderr)
+
+    # Wait for the callback
+    server.handle_request()
+
+    if not server.callback_url:
+        raise ValueError("no callback received from OAuth flow")
+
+    logger.debug(f"received callback: {server.callback_url}")
+    return server.callback_url
 
 ##################################################
 
@@ -198,7 +212,7 @@ def log_token(token):
 
 ##################################################
 
-def get_token(account, browser=True):
+def get_token(account, use_localhost=True):
     name = account['name']
     tenant = account['tenant']
     client_id = account['client_id']
@@ -219,6 +233,9 @@ def get_token(account, browser=True):
     auth_url = MS_AUTH_URL.format(tenant=tenant)
     token_url = MS_TOKEN_URL.format(tenant=tenant)
 
+    # Use localhost redirect for new authorization flow
+    redirect_uri = get_localhost_redirect_uri(LOCALHOST_PORT) if use_localhost else None
+
     def token_updater(token):
         write_token(token, token_path)
 
@@ -226,14 +243,14 @@ def get_token(account, browser=True):
     client = OAuth2Session(
         client_id,
         scope=MS_SCOPES,
-        redirect_uri=MS_REDIRECT_URI,
+        redirect_uri=redirect_uri,
         token=token,
         auto_refresh_url=token_url,
         # auto_refresh_kwargs=extra,
         token_updater=token_updater,
     )
 
-    logger.debug(f"client authorizated (expected): {client.authorized}")
+    logger.debug(f"client authorized (expected): {client.authorized}")
 
     logger.debug("refreshing token...")
     try:
@@ -254,7 +271,10 @@ def get_token(account, browser=True):
     logger.debug(f"state: {state}")
     logger.debug(f"authorization url: {authorization_url}")
 
-    authorization_redirect = user_resolve_auth_url(authorization_url, headless=browser)
+    if use_localhost:
+        authorization_redirect = user_resolve_auth_url_localhost(authorization_url)
+    else:
+        authorization_redirect = user_resolve_auth_url_manual(authorization_url)
     logger.debug(f"redirect url: {authorization_redirect}")
 
     logger.debug("token fetch...")
@@ -265,7 +285,7 @@ def get_token(account, browser=True):
     )
     acquired = time.time()
     expires = datetime.fromtimestamp(token['expires_at'])
-    logger.debug(f"new token retreived (expires: {expires})")
+    logger.debug(f"new token retrieved (expires: {expires})")
 
     write_token(token, token_path, acquired=acquired)
 
