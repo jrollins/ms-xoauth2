@@ -16,8 +16,10 @@ import os
 import sys
 import time
 import json
+import shutil
 import logging
 import argparse
+import subprocess
 import configparser
 import webbrowser
 from datetime import datetime
@@ -31,6 +33,106 @@ from requests_oauthlib import OAuth2Session
 from appdirs import user_config_dir, user_cache_dir
 
 logger = logging.getLogger(__name__)
+
+##################################################
+# GUI Dialog Functions
+##################################################
+
+def find_dialog_tool():
+    """Find an available dialog tool (zenity or gxmessage)."""
+    for tool in ['zenity', 'gxmessage']:
+        if shutil.which(tool):
+            return tool
+    return None
+
+
+def show_info_dialog(title, message):
+    """Display an informational dialog to the user."""
+    tool = find_dialog_tool()
+    logger.debug(f"showing info dialog via {tool}: {title}")
+
+    if tool == 'zenity':
+        subprocess.run([
+            'zenity', '--info',
+            '--title', title,
+            '--text', message,
+            '--width', '400',
+        ])
+    elif tool == 'gxmessage':
+        subprocess.run([
+            'gxmessage', '-center',
+            '-title', title,
+            message,
+        ])
+    else:
+        # Fallback to stderr
+        print(f"\n{title}\n{message}\n", file=sys.stderr)
+
+
+def show_entry_dialog(title, prompt, default=''):
+    """Display a dialog prompting for text input. Returns the entered text."""
+    tool = find_dialog_tool()
+    logger.debug(f"showing entry dialog via {tool}: {title}")
+
+    if tool == 'zenity':
+        result = subprocess.run([
+            'zenity', '--entry',
+            '--title', title,
+            '--text', prompt,
+            '--entry-text', default,
+            '--width', '500',
+        ], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    elif tool == 'gxmessage':
+        result = subprocess.run([
+            'gxmessage', '-center',
+            '-title', title,
+            '-entrytext', default,
+            prompt,
+        ], capture_output=True, text=True)
+        if result.returncode == 0:
+            return result.stdout.strip()
+        return None
+    else:
+        # Fallback to terminal input
+        return input(f"{prompt}: ")
+
+
+def show_code_dialog(verification_uri, user_code, expires_minutes):
+    """Display dialog with device code and open browser to verification URL."""
+    tool = find_dialog_tool()
+    logger.debug(f"showing code dialog via {tool}")
+
+    # Open browser to verification URI
+    webbrowser.open(verification_uri)
+
+    message = (
+        f"A browser has been opened to:\n"
+        f"{verification_uri}\n\n"
+        f"Enter this code to authenticate:\n\n"
+        f"    {user_code}\n\n"
+        f"This code expires in {expires_minutes} minutes.\n\n"
+        f"Click OK after you have completed authentication."
+    )
+
+    if tool == 'zenity':
+        subprocess.run([
+            'zenity', '--info',
+            '--title', 'Microsoft Authentication',
+            '--text', message,
+            '--width', '450',
+        ])
+    elif tool == 'gxmessage':
+        subprocess.run([
+            'gxmessage', '-center',
+            '-title', 'Microsoft Authentication',
+            message,
+        ])
+    else:
+        print(f"\n{message}\n", file=sys.stderr)
+        input("Press Enter after completing authentication...")
 
 ##################################################
 
