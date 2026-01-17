@@ -405,8 +405,11 @@ parser.add_argument(
     help="config account to use",
 )
 parser.add_argument(
-    '--manual', action='store_true',
-    help="use manual URL paste method instead of localhost callback",
+    '--method', '-m', default='device',
+    choices=['localhost', 'device', 'manual'],
+    help="authentication method: 'localhost' (browser redirect to local server), "
+         "'device' (enter code at microsoft.com/devicelogin), "
+         "'manual' (paste redirect URL)",
 )
 parser.add_argument(
     '--port', '-p', type=int, default=LOCALHOST_PORT,
@@ -435,7 +438,7 @@ def main():
 
     account = get_account(config, args.account)
 
-    token = get_token(account, use_localhost=not args.manual)
+    token = get_token(account, auth_method=args.method)
 
     print(token['access_token'])
 
