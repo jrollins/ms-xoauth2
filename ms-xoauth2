@@ -229,14 +229,24 @@ def get_account(config, account='default'):
 
 
 def user_resolve_auth_url_manual(authorization_url):
-    """Prompt user to manually visit URL and paste the redirect (legacy fallback)."""
-    auth_redirect = input(f"""
-Visit link in a web browser, then paste the resulting URL:
+    """Open browser and prompt user to paste the redirect URL via dialog."""
+    logger.debug(f"opening browser to: {authorization_url}")
 
-{authorization_url}
+    # Open browser to authorization URL
+    webbrowser.open(authorization_url)
 
-Resulting URL: """)
-    print('', file=sys.stderr)
+    prompt = (
+        "A browser has been opened for Microsoft authentication.\n\n"
+        "After signing in, you will be redirected to a page.\n"
+        "Copy the FULL URL from your browser's address bar\n"
+        "and paste it below:"
+    )
+
+    auth_redirect = show_entry_dialog(
+        "Microsoft Authentication",
+        prompt,
+    )
+
     if not auth_redirect:
         raise ValueError("no redirect URI provided.")
     return auth_redirect
