@@ -299,7 +299,13 @@ def log_token(token):
 
 ##################################################
 
-def get_token(account, use_localhost=True):
+def get_token(account, auth_method='localhost'):
+    """Get an OAuth token for the account, using cached token if valid.
+
+    Args:
+        account: Account dict with name, tenant, client_id
+        auth_method: Authentication method - 'localhost', 'device', or 'manual'
+    """
     name = account['name']
     tenant = account['tenant']
     client_id = account['client_id']
@@ -317,48 +323,54 @@ def get_token(account, use_localhost=True):
         if not expired:
             return token
 
-    auth_url = MS_AUTH_URL.format(tenant=tenant)
     token_url = MS_TOKEN_URL.format(tenant=tenant)
 
-    # Use localhost redirect for new authorization flow
-    redirect_uri = get_localhost_redirect_uri(LOCALHOST_PORT) if use_localhost else None
+    # Try to refresh existing token first (works for all auth methods)
+    if token:
+        logger.debug("refreshing token...")
+        try:
+            response = requests.post(token_url, data={
+                'grant_type': 'refresh_token',
+                'client_id': client_id,
+                'refresh_token': token.get('refresh_token'),
+                'scope': ' '.join(MS_SCOPES),
+            })
+            if response.status_code == 200:
+                token = response.json()
+                if 'expires_in' in token and 'expires_at' not in token:
+                    token['expires_at'] = time.time() + token['expires_in']
+                write_token(token, token_path)
+                log_token(token)
+                return token
+            else:
+                logger.error(f"refresh failed: {response.text}")
+        except Exception as e:
+            logger.error(e)
 
-    def token_updater(token):
+    logger.debug(f"retrieving new token via {auth_method} method...")
+
+    # Device code flow - doesn't use redirect URI
+    if auth_method == 'device':
+        token = get_token_device_code(tenant, client_id, MS_SCOPES)
         write_token(token, token_path)
+        return token
+
+    # Authorization code flow (localhost or manual)
+    auth_url = MS_AUTH_URL.format(tenant=tenant)
+    redirect_uri = get_localhost_redirect_uri(LOCALHOST_PORT) if auth_method == 'localhost' else None
 
     os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
     client = OAuth2Session(
         client_id,
         scope=MS_SCOPES,
         redirect_uri=redirect_uri,
-        token=token,
-        auto_refresh_url=token_url,
-        # auto_refresh_kwargs=extra,
-        token_updater=token_updater,
     )
-
-    logger.debug(f"client authorized (expected): {client.authorized}")
-
-    logger.debug("refreshing token...")
-    try:
-        # FIXME: this doesn't seem to be updating the cached token?
-        # FIXME: do we need to manually write the token?
-        token = client.refresh_token(token_url)#, **extra)
-        expired = log_token(token)
-        return token
-    # FIXME: should we not capture just this specific exception?
-    #except oauthlib.oauth2.rfc6749.errors.InvalidGrantError as e:
-    except Exception as e:
-        #logger.exception(e)
-        logger.error(e)
-
-    logger.debug("retrieving new token...")
 
     authorization_url, state = client.authorization_url(auth_url)
     logger.debug(f"state: {state}")
     logger.debug(f"authorization url: {authorization_url}")
 
-    if use_localhost:
+    if auth_method == 'localhost':
         authorization_redirect = user_resolve_auth_url_localhost(authorization_url)
     else:
         authorization_redirect = user_resolve_auth_url_manual(authorization_url)
