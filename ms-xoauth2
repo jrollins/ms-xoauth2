@@ -334,10 +334,54 @@ def poll_for_token(tenant, client_id, device_code, interval=5, timeout=900):
     raise ValueError("timeout waiting for user to complete authentication")
 
 
+def launch_device_code_dialog(verification_uri, user_code, expires_minutes):
+    """Launch a non-blocking dialog showing the device code and open browser.
+
+    Returns the Popen process so it can be terminated later.
+    """
+    tool = find_dialog_tool()
+    logger.debug(f"launching device code dialog via {tool}")
+
+    # Open browser to verification URI
+    webbrowser.open(verification_uri)
+
+    message = (
+        f"A browser has been opened to:\n"
+        f"{verification_uri}\n\n"
+        f"Enter this code to authenticate:\n\n"
+        f"    {user_code}\n\n"
+        f"This code expires in {expires_minutes} minutes.\n"
+        f"This dialog will close automatically when complete."
+    )
+
+    if tool == 'zenity':
+        # Use --info with --no-wrap for better formatting
+        proc = subprocess.Popen([
+            'zenity', '--info',
+            '--title', 'Microsoft Authentication Required',
+            '--text', message,
+            '--width', '450',
+            '--no-wrap',
+        ])
+        return proc
+    elif tool == 'gxmessage':
+        proc = subprocess.Popen([
+            'gxmessage', '-center',
+            '-title', 'Microsoft Authentication Required',
+            '-buttons', 'Waiting...',
+            message,
+        ])
+        return proc
+    else:
+        # No dialog tool - print to stderr
+        print(f"\n{message}\n", file=sys.stderr)
+        return None
+
+
 def get_token_device_code(tenant, client_id, scopes):
     """Obtain a token using the device code flow.
 
-    Prompts user to visit a URL and enter a code, then polls for completion.
+    Opens browser and shows dialog with code, then polls for completion.
     """
     logger.debug("initiating device code flow...")
 
@@ -349,18 +393,21 @@ def get_token_device_code(tenant, client_id, scopes):
     interval = device_code_response.get('interval', 5)
     expires_in = device_code_response.get('expires_in', 900)
 
-    # Display instructions to user
-    print(f"""
-To sign in, visit: {verification_uri}
+    # Launch non-blocking dialog and open browser
+    dialog_proc = launch_device_code_dialog(
+        verification_uri, user_code, expires_in // 60
+    )
 
-Enter the code: {user_code}
+    try:
+        token = poll_for_token(tenant, client_id, device_code, interval=interval, timeout=expires_in)
+    finally:
+        # Close the dialog if still open
+        if dialog_proc and dialog_proc.poll() is None:
+            dialog_proc.terminate()
 
-Waiting for authentication (expires in {expires_in // 60} minutes)...
-""", file=sys.stderr)
+    # Show success notification
+    show_info_dialog("Authentication Complete", "Microsoft authentication was successful!")
 
-    token = poll_for_token(tenant, client_id, device_code, interval=interval, timeout=expires_in)
-
-    print("Authentication successful!", file=sys.stderr)
     return token
 
 ##################################################
