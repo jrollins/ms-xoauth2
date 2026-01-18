@@ -56,27 +56,41 @@ def find_dialog_tool():
     return None
 
 
-def show_info_dialog(title, message):
-    """Display an informational dialog to the user."""
+def show_info_dialog(title, message, blocking=True):
+    """Display an informational dialog to the user.
+
+    Args:
+        title: Dialog window title
+        message: Message to display
+        blocking: If True, wait for dialog to close. If False, return Popen process.
+
+    Returns:
+        None if blocking, or Popen process if non-blocking
+    """
     tool = find_dialog_tool()
     logger.debug(f"showing info dialog via {tool}: {title}")
 
+    run_func = subprocess.run if blocking else subprocess.Popen
+
     if tool == 'zenity':
-        subprocess.run([
+        proc = run_func([
             'zenity', '--info',
             '--title', title,
             '--text', message,
             '--width', '400',
         ])
+        return None if blocking else proc
     elif tool == 'gxmessage':
-        subprocess.run([
+        proc = run_func([
             'gxmessage', '-center',
             '-title', title,
             message,
         ])
+        return None if blocking else proc
     else:
         # Fallback to stderr
         print(f"\n{title}\n{message}\n", file=sys.stderr)
+        return None
 
 
 def show_entry_dialog(title, prompt, default=''):
@@ -109,40 +123,6 @@ def show_entry_dialog(title, prompt, default=''):
         # Fallback to terminal input
         return input(f"{prompt}: ")
 
-
-def show_code_dialog(verification_uri, user_code, expires_minutes):
-    """Display dialog with device code and open browser to verification URL."""
-    tool = find_dialog_tool()
-    logger.debug(f"showing code dialog via {tool}")
-
-    # Open browser to verification URI
-    webbrowser.open(verification_uri)
-
-    message = (
-        f"A browser has been opened to:\n"
-        f"{verification_uri}\n\n"
-        f"Enter this code to authenticate:\n\n"
-        f"    {user_code}\n\n"
-        f"This code expires in {expires_minutes} minutes.\n\n"
-        f"Click OK after you have completed authentication."
-    )
-
-    if tool == 'zenity':
-        subprocess.run([
-            'zenity', '--info',
-            '--title', 'Microsoft Authentication',
-            '--text', message,
-            '--width', '450',
-        ])
-    elif tool == 'gxmessage':
-        subprocess.run([
-            'gxmessage', '-center',
-            '-title', 'Microsoft Authentication',
-            message,
-        ])
-    else:
-        print(f"\n{message}\n", file=sys.stderr)
-        input("Press Enter after completing authentication...")
 
 ##################################################
 # device redirect method
@@ -223,9 +203,6 @@ def launch_device_code_dialog(verification_uri, user_code, expires_minutes):
 
     Returns the Popen process so it can be terminated later.
     """
-    tool = find_dialog_tool()
-    logger.debug(f"launching device code dialog via {tool}")
-
     # Open browser to verification URI
     webbrowser.open(verification_uri)
 
@@ -238,28 +215,7 @@ def launch_device_code_dialog(verification_uri, user_code, expires_minutes):
         f"This dialog will close automatically when complete."
     )
 
-    if tool == 'zenity':
-        # Use --info with --no-wrap for better formatting
-        proc = subprocess.Popen([
-            'zenity', '--info',
-            '--title', 'Microsoft Authentication Required',
-            '--text', message,
-            '--width', '450',
-            '--no-wrap',
-        ])
-        return proc
-    elif tool == 'gxmessage':
-        proc = subprocess.Popen([
-            'gxmessage', '-center',
-            '-title', 'Microsoft Authentication Required',
-            '-buttons', 'Waiting...',
-            message,
-        ])
-        return proc
-    else:
-        # No dialog tool - print to stderr
-        print(f"\n{message}\n", file=sys.stderr)
-        return None
+    return show_info_dialog("Microsoft Authentication Required", message, blocking=False)
 
 
 def get_token_device_code(tenant, client_id, scopes):
