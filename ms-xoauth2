@@ -39,7 +39,8 @@ MS_AUTH_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize"
 MS_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 MS_DEVICE_CODE_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/devicecode"
 MS_REDIRECT_URI_NATIVECLIENT = "https://login.microsoftonline.com/common/oauth2/nativeclient"
-MS_SCOPES = ["https://outlook.office.com/SMTP.Send", "offline_access"]
+
+DEFAULT_SCOPE = "SMTP.Send"
 
 DEFAULT_CONFIG_PATH = os.path.join(user_config_dir(), 'ms-xoauth2', 'config')
 CACHE_DIR = os.path.join(user_cache_dir(), 'ms-xoauth2')
@@ -478,6 +479,7 @@ def get_token(account, auth_method='localhost'):
     name = account['name']
     tenant = account['tenant']
     client_id = account['client_id']
+    scopes = account['scope']
 
     token_path = os.path.join(CACHE_DIR, 'tokens', f'{name}.json')
     try:
@@ -502,7 +504,7 @@ def get_token(account, auth_method='localhost'):
                 'grant_type': 'refresh_token',
                 'client_id': client_id,
                 'refresh_token': token.get('refresh_token'),
-                'scope': ' '.join(MS_SCOPES),
+                'scope': ' '.join(scopes),
             })
             if response.status_code == 200:
                 token = response.json()
@@ -520,7 +522,7 @@ def get_token(account, auth_method='localhost'):
 
     # Device code flow - doesn't use redirect URI
     if auth_method == 'device':
-        token = get_token_device_code(tenant, client_id, MS_SCOPES)
+        token = get_token_device_code(tenant, client_id, scopes)
         write_token(token, token_path)
         return token
 
@@ -537,7 +539,7 @@ def get_token(account, auth_method='localhost'):
     os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
     client = OAuth2Session(
         client_id,
-        scope=MS_SCOPES,
+        scope=scopes,
         redirect_uri=redirect_uri,
     )
 
@@ -558,7 +560,7 @@ def get_token(account, auth_method='localhost'):
     os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
     client = OAuth2Session(
         client_id,
-        scope=MS_SCOPES,
+        scope=scopes,
         redirect_uri=redirect_uri,
     )
 
@@ -588,7 +590,16 @@ def get_account(config, account='default'):
     if account == 'default':
         account = config['default']['account']
     logger.debug(f"account: {account}")
-    return dict(config[account], name=account)
+    acct = dict(config[account], name=account)
+
+    # Build scopes list from config
+    # Supports multiple scopes separated by comma or space
+    scopes_str = acct.get('scope', DEFAULT_SCOPE)
+    scope_names = [s.strip() for s in scopes_str.replace(',', ' ').split()]
+    acct['scope'] = [f"https://outlook.office.com/{s}" for s in scope_names] + ["offline_access"]
+    logger.debug(f"resolved scopes: {acct['scope']}")
+
+    return acct
 
 ##################################################
 
