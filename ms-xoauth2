@@ -391,7 +391,7 @@ def user_resolve_auth_url_localhost(auth_url, client_id, scopes):
     # Open browser to authorization URL
     webbrowser.open(authorization_url)
 
-    print(f"Opened browser for authorization. Waiting for callback on port {port}...", file=sys.stderr)
+    logger.info("Opened browser for authorization, waiting for callback...")
 
     # Wait for the callback
     server.handle_request()
