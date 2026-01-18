@@ -393,7 +393,9 @@ def user_resolve_auth_url_embedded(authorization_url, redirect_uri):
     window.events.closing += on_closing
 
     # Start the webview (blocks until window is closed)
-    webview.start()
+    # Use app-specific storage for persistent cookies/credentials
+    webview_storage = os.path.join(CACHE_DIR, 'webview')
+    webview.start(private_mode=False, storage_path=webview_storage)
 
     if error:
         raise ValueError(error)
