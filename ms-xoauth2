@@ -354,15 +354,13 @@ def start_local_server():
     Returns the server instance. The callback URL will be stored in
     server.callback_url after a request is received.
     """
-    server = HTTPServer(('localhost', 0), OAuthCallbackHandler)
+    server = HTTPServer(("localhost", 0), OAuthCallbackHandler)
     server.callback_url = None
     server.timeout = 300  # 5 minute timeout
-    return server
-
-
-def get_localhost_redirect_uri(port):
-    """Return the localhost redirect URI for the given port."""
-    return f"http://localhost:{port}/"
+    port = server.server_address[1]
+    address = f"http://localhost:{port}/"
+    logger.debug(f"started local HTTP server on port {port}")
+    return server, address
 
 
 def user_resolve_auth_url_localhost(auth_url, client_id, scopes):
@@ -376,11 +374,7 @@ def user_resolve_auth_url_localhost(auth_url, client_id, scopes):
     can use the same redirect_uri for token exchange.
     """
     # Start server on a free port
-    server = start_local_server()
-    port = server.server_address[1]
-    redirect_uri = get_localhost_redirect_uri(port)
-
-    logger.debug(f"started local server on port {port}")
+    server, redirect_uri = start_local_server()
 
     # Create OAuth session with the dynamic redirect URI
     os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
