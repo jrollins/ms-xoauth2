@@ -591,14 +591,14 @@ def get_account(config, account='default'):
         account = config['default']['account']
     logger.debug(f"account: {account}")
     acct = dict(config[account], name=account)
-
+    for key in ["client_id", "tenant"]:
+        logger.debug(f"{key}: {acct[key]}")
     # Build scopes list from config
     # Supports multiple scopes separated by comma or space
     scopes_str = acct.get('scope', DEFAULT_SCOPE)
     scope_names = [s.strip() for s in scopes_str.replace(',', ' ').split()]
     acct['scope'] = [f"https://outlook.office.com/{s}" for s in scope_names] + ["offline_access"]
     logger.debug(f"resolved scopes: {acct['scope']}")
-
     return acct
 
 ##################################################
