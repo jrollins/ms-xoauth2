@@ -363,7 +363,7 @@ def start_local_server():
     return server, address
 
 
-def user_resolve_auth_url_localhost(auth_url, client_id, scopes):
+def user_resolve_auth_url_localhost(authorization_url, server):
     """Start local server, open browser, and capture OAuth callback.
 
     Starts a local HTTP server on a free port, constructs the authorization
@@ -373,21 +373,6 @@ def user_resolve_auth_url_localhost(auth_url, client_id, scopes):
     Returns tuple of (authorization_redirect_url, redirect_uri) so the caller
     can use the same redirect_uri for token exchange.
     """
-    # Start server on a free port
-    server, redirect_uri = start_local_server()
-
-    # Create OAuth session with the dynamic redirect URI
-    os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
-    client = OAuth2Session(
-        client_id,
-        scope=scopes,
-        redirect_uri=redirect_uri,
-    )
-
-    authorization_url, state = client.authorization_url(auth_url)
-    logger.debug(f"state: {state}")
-    logger.debug(f"opening browser to: {authorization_url}")
-
     # Open browser to authorization URL
     webbrowser.open(authorization_url)
 
@@ -400,7 +385,7 @@ def user_resolve_auth_url_localhost(auth_url, client_id, scopes):
         raise ValueError("no callback received from OAuth flow")
 
     logger.debug(f"received callback: {server.callback_url}")
-    return server.callback_url, redirect_uri
+    return server.callback_url
 
 ##################################################
 # embeded redirect method
@@ -586,31 +571,30 @@ def get_token(account, auth_method='localhost'):
     # Authorization code flow (embedded, localhost, or manual)
     auth_url = MS_AUTH_URL.format(tenant=tenant)
 
-    # Localhost method handles authorization internally (needs dynamic port)
     if auth_method == 'localhost':
-        authorization_redirect, redirect_uri = user_resolve_auth_url_localhost(
-            auth_url, client_id, MS_SCOPES
-        )
-
+        # Localhost method gets redirect URL from server started with dynamic port
+        server, redirect_uri = start_local_server()
     else:
         # Other methods use nativeclient URI
         redirect_uri = MS_REDIRECT_URI_NATIVECLIENT
 
-        os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
-        client = OAuth2Session(
-            client_id,
-            scope=MS_SCOPES,
-            redirect_uri=redirect_uri,
-        )
+    os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
+    client = OAuth2Session(
+        client_id,
+        scope=MS_SCOPES,
+        redirect_uri=redirect_uri,
+    )
 
-        authorization_url, state = client.authorization_url(auth_url)
-        logger.debug(f"state: {state}")
-        logger.debug(f"authorization url: {authorization_url}")
+    authorization_url, state = client.authorization_url(auth_url)
+    logger.debug(f"state: {state}")
+    logger.debug(f"authorization url: {authorization_url}")
 
-        if auth_method == 'embedded':
-            authorization_redirect = user_resolve_auth_url_embedded(authorization_url, redirect_uri)
-        else:
-            authorization_redirect = user_resolve_auth_url_manual(authorization_url)
+    if auth_method == 'localhost':
+        authorization_redirect = user_resolve_auth_url_localhost(authorization_url, server)
+    elif auth_method == 'embedded':
+        authorization_redirect = user_resolve_auth_url_embedded(authorization_url, redirect_uri)
+    else:
+        authorization_redirect = user_resolve_auth_url_manual(authorization_url)
 
     logger.debug(f"redirect url: {authorization_redirect}")
 
