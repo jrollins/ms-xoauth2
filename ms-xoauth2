@@ -420,21 +420,23 @@ def user_resolve_auth_url_embedded(authorization_url, redirect_uri):
             "Install it with: pip install pywebview"
         )
 
-    result = {'redirect_url': None, 'error': None}
+    redirect_url = None
+    error = None
 
     def on_loaded():
         """Check if we've been redirected to the callback URL."""
+        nonlocal redirect_url
         current_url = window.get_current_url()
         logger.debug(f"webview loaded: {current_url}")
-
         if current_url and current_url.startswith(redirect_uri):
-            result['redirect_url'] = current_url
+            redirect_url = current_url
             window.destroy()
 
     def on_closing():
         """Handle window close without completing auth."""
-        if not result['redirect_url']:
-            result['error'] = "Authentication window closed before completion"
+        nonlocal error
+        if not redirect_url:
+            error = "Authentication window closed before completion"
         return True
 
     logger.debug(f"opening embedded browser to: {authorization_url}")
@@ -451,14 +453,14 @@ def user_resolve_auth_url_embedded(authorization_url, redirect_uri):
     # Start the webview (blocks until window is closed)
     webview.start()
 
-    if result['error']:
-        raise ValueError(result['error'])
+    if error:
+        raise ValueError(error)
 
-    if not result['redirect_url']:
+    if not redirect_url:
         raise ValueError("no redirect URL captured from embedded browser")
 
-    logger.debug(f"captured redirect: {result['redirect_url']}")
-    return result['redirect_url']
+    logger.debug(f"captured redirect: {redirect_url}")
+    return redirect_url
 
 ##################################################
 # manual redirect method
