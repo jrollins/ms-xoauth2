@@ -185,19 +185,20 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
         logger.debug(f"HTTP: {format % args}")
 
 
-def start_local_server(port=8400):
-    """Start a local HTTP server to receive the OAuth callback.
+def start_local_server():
+    """Start a local HTTP server on a free port to receive the OAuth callback.
 
+    Binds to port 0 to let the OS assign an available high-numbered port.
     Returns the server instance. The callback URL will be stored in
     server.callback_url after a request is received.
     """
-    server = HTTPServer(('localhost', port), OAuthCallbackHandler)
+    server = HTTPServer(('localhost', 0), OAuthCallbackHandler)
     server.callback_url = None
     server.timeout = 300  # 5 minute timeout
     return server
 
 
-def get_localhost_redirect_uri(port=8400):
+def get_localhost_redirect_uri(port):
     """Return the localhost redirect URI for the given port."""
     return f"http://localhost:{port}/"
 
@@ -208,8 +209,6 @@ MS_TOKEN_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token"
 MS_DEVICE_CODE_URL = "https://login.microsoftonline.com/{tenant}/oauth2/v2.0/devicecode"
 MS_REDIRECT_URI_NATIVECLIENT = "https://login.microsoftonline.com/common/oauth2/nativeclient"
 MS_SCOPES = ["https://outlook.office.com/SMTP.Send", "offline_access"]
-
-LOCALHOST_PORT = 8400
 
 DEFAULT_CONFIG_PATH = os.path.join(user_config_dir(), 'ms-xoauth2', 'config')
 CACHE_DIR = os.path.join(user_cache_dir(), 'ms-xoauth2')
@@ -253,17 +252,39 @@ def user_resolve_auth_url_manual(authorization_url):
     return auth_redirect
 
 
-def user_resolve_auth_url_localhost(authorization_url, port=LOCALHOST_PORT):
-    """Open browser and capture OAuth callback via local HTTP server."""
-    server = start_local_server(port)
+def user_resolve_auth_url_localhost(auth_url, client_id, scopes):
+    """Start local server, open browser, and capture OAuth callback.
+
+    Starts a local HTTP server on a free port, constructs the authorization
+    URL with the correct redirect URI, opens the browser, and waits for
+    the callback.
+
+    Returns tuple of (authorization_redirect_url, redirect_uri) so the caller
+    can use the same redirect_uri for token exchange.
+    """
+    # Start server on a free port
+    server = start_local_server()
+    port = server.server_address[1]
+    redirect_uri = get_localhost_redirect_uri(port)
 
     logger.debug(f"started local server on port {port}")
+
+    # Create OAuth session with the dynamic redirect URI
+    os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
+    client = OAuth2Session(
+        client_id,
+        scope=scopes,
+        redirect_uri=redirect_uri,
+    )
+
+    authorization_url, state = client.authorization_url(auth_url)
+    logger.debug(f"state: {state}")
     logger.debug(f"opening browser to: {authorization_url}")
 
     # Open browser to authorization URL
     webbrowser.open(authorization_url)
 
-    print(f"Opened browser for authorization. Waiting for callback...", file=sys.stderr)
+    print(f"Opened browser for authorization. Waiting for callback on port {port}...", file=sys.stderr)
 
     # Wait for the callback
     server.handle_request()
@@ -272,7 +293,7 @@ def user_resolve_auth_url_localhost(authorization_url, port=LOCALHOST_PORT):
         raise ValueError("no callback received from OAuth flow")
 
     logger.debug(f"received callback: {server.callback_url}")
-    return server.callback_url
+    return server.callback_url, redirect_uri
 
 
 def user_resolve_auth_url_embedded(authorization_url, redirect_uri):
@@ -573,33 +594,40 @@ def get_token(account, auth_method='localhost'):
     # Authorization code flow (embedded, localhost, or manual)
     auth_url = MS_AUTH_URL.format(tenant=tenant)
 
-    # Select redirect URI based on method
+    # Localhost method handles authorization internally (needs dynamic port)
     if auth_method == 'localhost':
-        redirect_uri = get_localhost_redirect_uri(LOCALHOST_PORT)
-    elif auth_method == 'embedded':
-        redirect_uri = MS_REDIRECT_URI_NATIVECLIENT
+        authorization_redirect, redirect_uri = user_resolve_auth_url_localhost(
+            auth_url, client_id, MS_SCOPES
+        )
     else:
-        # manual method uses nativeclient URI
+        # Other methods use nativeclient URI
         redirect_uri = MS_REDIRECT_URI_NATIVECLIENT
 
+        os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
+        client = OAuth2Session(
+            client_id,
+            scope=MS_SCOPES,
+            redirect_uri=redirect_uri,
+        )
+
+        authorization_url, state = client.authorization_url(auth_url)
+        logger.debug(f"state: {state}")
+        logger.debug(f"authorization url: {authorization_url}")
+
+        if auth_method == 'embedded':
+            authorization_redirect = user_resolve_auth_url_embedded(authorization_url, redirect_uri)
+        else:
+            authorization_redirect = user_resolve_auth_url_manual(authorization_url)
+
+    logger.debug(f"redirect url: {authorization_redirect}")
+
+    # Create OAuth session for token exchange (needed for localhost which doesn't create one above)
     os.environ['OAUTHLIB_RELAX_TOKEN_SCOPE'] = 'True'
     client = OAuth2Session(
         client_id,
         scope=MS_SCOPES,
         redirect_uri=redirect_uri,
     )
-
-    authorization_url, state = client.authorization_url(auth_url)
-    logger.debug(f"state: {state}")
-    logger.debug(f"authorization url: {authorization_url}")
-
-    if auth_method == 'localhost':
-        authorization_redirect = user_resolve_auth_url_localhost(authorization_url)
-    elif auth_method == 'embedded':
-        authorization_redirect = user_resolve_auth_url_embedded(authorization_url, redirect_uri)
-    else:
-        authorization_redirect = user_resolve_auth_url_manual(authorization_url)
-    logger.debug(f"redirect url: {authorization_redirect}")
 
     logger.debug("token fetch...")
     token = client.fetch_token(
@@ -638,10 +666,6 @@ parser.add_argument(
          "'device' (enter code at microsoft.com/devicelogin), "
          "'manual' (paste redirect URL)",
 )
-parser.add_argument(
-    '--port', '-p', type=int, default=LOCALHOST_PORT,
-    help="port for localhost OAuth callback server",
-)
 
 
 def main():
@@ -656,10 +680,6 @@ def main():
     logger.addHandler(handler)
 
     args = parser.parse_args()
-
-    # Update port if specified
-    global LOCALHOST_PORT
-    LOCALHOST_PORT = args.port
 
     config = load_config(args.config)
 
