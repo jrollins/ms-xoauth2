@@ -1,10 +1,16 @@
 # ms-xoauth2
 
-A command-line tool for retrieving Microsoft OAuth2 access tokens for SMTP, IMAP, and POP email access.
+A python-based tool for retrieving Microsoft OAuth2 access tokens.
+
+SMTP, IMAP, and POP email access.
 
 ## Overview
 
-This tool handles the OAuth2 authentication flow for Microsoft 365 / Exchange Online, obtaining and caching access tokens that can be used with email clients supporting XOAUTH2 authentication (such as Evolution, Thunderbird, or custom scripts).
+This tool implements various OAuth2 authentication flows for Microsoft
+365 / Exchange Online, obtaining and caching access tokens and
+returning the access token to stdout.  It was written specifically to
+be used with [msmtp](https://marlam.de/msmtp/) (SMTP), but should be
+usable in other contexts as well (IMAP, and POP, etc.)
 
 ## Requirements
 
@@ -13,7 +19,7 @@ This tool handles the OAuth2 authentication flow for Microsoft 365 / Exchange On
 - `requests-oauthlib`
 - `appdirs`
 - `pywebview` (optional, for embedded browser method)
-- `zenity` or `gxmessage` (optional, for GUI dialogs)
+- `zenity` or `gxmessage` (optional, for GUI dialogs for the "device" and "manual" methods)
 
 Install Python dependencies:
 
@@ -36,8 +42,6 @@ client_id: your-client-id
 scope: SMTP.Send
 ```
 
-See `config.example` for a reference.
-
 ## Usage
 
 ```bash
@@ -57,13 +61,25 @@ See `config.example` for a reference.
 ./ms-xoauth2 --config /path/to/config
 ```
 
-The tool outputs the access token to stdout, suitable for piping to other commands or email clients.
+The tool outputs the access token to stdout, suitable for piping to
+other commands.
+
+For use with msmtp, specify the path to the script (along with any
+command line arguments) as the argument(s) to the `passwordeval`
+config variable:
+
+```
+passwordeval /path/to/ms-xoauth2
+```
 
 ## Authentication Methods
 
 ### `embedded` (default)
 
-Opens an embedded browser window within the application using pywebview. The browser monitors URL changes and automatically captures the authorization code when Microsoft redirects after successful authentication.
+Opens an embedded browser window within the application using
+pywebview. The browser monitors URL changes and automatically captures
+the authorization code when Microsoft redirects after successful
+authentication.
 
 **Advantages:**
 - No app registration changes required (uses existing nativeclient redirect URI)
@@ -76,7 +92,9 @@ Opens an embedded browser window within the application using pywebview. The bro
 
 ### `localhost`
 
-Starts a local HTTP server on a dynamically-assigned free port, opens the system browser to the authorization URL, and waits for Microsoft to redirect back to localhost with the authorization code.
+Starts a local HTTP server on a dynamically-assigned free port, opens
+the system browser to the authorization URL, and waits for Microsoft
+to redirect back to localhost with the authorization code.
 
 **Advantages:**
 - Uses system browser (full compatibility, existing sessions)
@@ -87,7 +105,9 @@ Starts a local HTTP server on a dynamically-assigned free port, opens the system
 
 ### `device`
 
-Uses the OAuth2 device code flow. Displays a code and opens a browser to `microsoft.com/devicelogin` where the user enters the code to authenticate.
+Uses the OAuth2 device code flow. Displays a code and opens a browser
+to `microsoft.com/devicelogin` where the user enters the code to
+authenticate.
 
 **Advantages:**
 - Works on headless systems or when browser integration is difficult
@@ -98,7 +118,9 @@ Uses the OAuth2 device code flow. Displays a code and opens a browser to `micros
 
 ### `manual`
 
-Opens the system browser to the authorization URL and displays a dialog prompting the user to copy and paste the redirect URL from the browser's address bar after authentication.
+Opens the system browser to the authorization URL and displays a
+dialog prompting the user to copy and paste the redirect URL from the
+browser's address bar after authentication.
 
 **Advantages:**
 - Works without any app registration changes
@@ -106,11 +128,13 @@ Opens the system browser to the authorization URL and displays a dialog promptin
 
 **Disadvantages:**
 - Requires manual URL copying
-- Microsoft may show a warning page on the nativeclient redirect
+- Microsoft may show a warning page on the nativeclient redirect, and
+  not provide much time to grap the redirect URL.
 
 ## Token Caching
 
-Tokens are cached in `~/.cache/ms-xoauth2/tokens/<account>.json`. The tool automatically:
+Tokens are cached in `~/.cache/ms-xoauth2/tokens/<account>.json`. The
+tool automatically:
 
 1. Returns a cached token if still valid
 2. Refreshes an expired token using the refresh token
@@ -135,4 +159,4 @@ To use this tool, you need an Azure app registration with:
 
 ## License
 
-MIT
+GPLv3 or later
