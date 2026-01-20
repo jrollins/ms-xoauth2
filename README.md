@@ -2,15 +2,17 @@
 
 A python-based tool for retrieving Microsoft OAuth2 access tokens.
 
-SMTP, IMAP, and POP email access.
-
 ## Overview
 
 This tool implements various OAuth2 authentication flows for Microsoft
 365 / Exchange Online, obtaining and caching access tokens and
-returning the access token to stdout.  It was written specifically to
-be used with [msmtp](https://marlam.de/msmtp/) (SMTP), but should be
-usable in other contexts as well (IMAP, and POP, etc.)
+returning the access token to stdout.  It was originally based on
+[sasl-xoauth2-tool](https://github.com/tarickb/sasl-xoauth2), with
+modifications for it to work in a background context more seamlessly.
+
+It was written specifically to be used with
+[msmtp](https://marlam.de/msmtp/) (SMTP), but should be usable in
+other contexts as well (IMAP, POP, etc.)
 
 ## Requirements
 
