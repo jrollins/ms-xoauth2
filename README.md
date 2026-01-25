@@ -14,6 +14,10 @@ It was written specifically to be used with
 [msmtp](https://marlam.de/msmtp/) (SMTP), but should be usable in
 other contexts as well (IMAP, POP, etc.)
 
+Inspired by
+[sasl-xoauth2-tool](https://github.com/tarickb/sasl-xoauth2), but with
+the additional goal of being run in the background (i.e. by msmtp).
+
 ## Requirements
 
 - Python 3.x
